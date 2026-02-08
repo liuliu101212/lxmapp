@@ -1,16 +1,12 @@
 {
   "name": "ai-virtual-try-on",
   "version": "1.0.0",
-  "description": "A simple AI virtual try-on application.",
-  "main": "index.html",
+  "private": true,
   "scripts": {
     "start": "serve .",
-    "build": "echo 'No build step required'"
+    "build": "mkdir -p public && cp index.html public/ || true"
   },
   "dependencies": {
     "serve": "^14.2.0"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  }
 }
