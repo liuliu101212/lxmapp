@@ -3,39 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 虚拟试衣 - 生产环境稳定版</title>
+    <title>AI 虚拟试衣 - 极简稳定版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
-        .gradient-bg { background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); }
-        .glass-card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-fade { animation: fadeIn 0.5s ease-out forwards; }
+        .gradient-bg { background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%); }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: slideIn 0.4s ease-out forwards; }
     </style>
 </head>
-<body class="bg-[#f8fafc] min-h-screen text-slate-800">
+<body class="bg-slate-50 min-h-screen text-slate-800">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
         function App() {
-            const [modelImage, setModelImage] = useState(null);
-            const [clothImage, setClothImage] = useState(null);
-            const [result, setResult] = useState(null);
+            const [modelImg, setModelImg] = useState(null);
+            const [itemImg, setItemImg] = useState(null);
+            const [finalResult, setFinalResult] = useState(null);
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState("");
-            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key_v4') || "");
-            const [showKeyModal, setShowKeyModal] = useState(!localStorage.getItem('gemini_api_key_v4'));
+            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key_v5') || "");
+            const [isKeyModalOpen, setIsKeyModalOpen] = useState(!localStorage.getItem('gemini_api_key_v5'));
 
             useEffect(() => {
                 if (window.lucide) window.lucide.createIcons();
-            }, [modelImage, clothImage, result, loading, error]);
+            }, [modelImg, itemImg, finalResult, error]);
 
-            const onFileChange = (e, setter) => {
+            const onImageUpload = (e, setter) => {
                 const file = e.target.files[0];
                 if (file) {
                     const reader = new FileReader();
@@ -44,186 +43,162 @@
                 }
             };
 
-            // 核心修复：强制使用 v1 稳定版接口，并按顺序降级尝试模型
-            const fetchAIPrompt = async (b64User, b64Cloth) => {
-                // 仅尝试最稳定的 v1 接口
-                const apiEndpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-                
-                const payload = {
-                    contents: [{
-                        parts: [
-                            { text: "Describe a person wearing this specific clothing item. Be detailed about the fit and style. Output only a 50-word English fashion prompt." },
-                            { inlineData: { mimeType: "image/jpeg", data: b64User } },
-                            { inlineData: { mimeType: "image/jpeg", data: b64Cloth } }
-                        ]
-                    }]
-                };
-
-                const res = await fetch(apiEndpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                const data = await res.json();
-                
-                if (data.error) {
-                    throw new Error(`API 报错 (${data.error.code}): ${data.error.message}`);
-                }
-
-                return data.candidates?.[0]?.content?.parts?.[0]?.text || "A stylish person wearing the fashion garment";
-            };
-
-            const generateFitting = async () => {
-                if (!apiKey) { setShowKeyModal(true); return; }
-                if (!modelImage || !clothImage) { setError("请先上传模特图和衣服图"); return; }
+            const startFitting = async () => {
+                if (!apiKey) { setIsKeyModalOpen(true); return; }
+                if (!modelImg || !itemImg) { setError("请先上传两张图片"); return; }
 
                 setLoading(true);
                 setError("");
-                setResult(null);
+                setFinalResult(null);
 
                 try {
-                    const b64User = modelImage.split(',')[1];
-                    const b64Cloth = clothImage.split(',')[1];
+                    // 强制使用最基础的 v1 接口，确保兼容性
+                    const API_URL = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+                    
+                    const payload = {
+                        contents: [{
+                            parts: [
+                                { text: "Focus on the person in Image 1 and the clothing in Image 2. Generate a 60-word English prompt for an image generator describing this person wearing that clothing. Realistic, high quality, studio lighting. Output prompt only." },
+                                { inlineData: { mimeType: "image/jpeg", data: modelImg.split(',')[1] } },
+                                { inlineData: { mimeType: "image/jpeg", data: itemImg.split(',')[1] } }
+                            ]
+                        }]
+                    };
 
-                    // 1. 获取 AI 描述
-                    const prompt = await fetchAIPrompt(b64User, b64Cloth);
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
                     
-                    // 2. 调用渲染引擎 (Pollinations)
+                    if (data.error) {
+                        throw new Error(`[API 响应错误] ${data.error.message}`);
+                    }
+
+                    const promptText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!promptText) throw new Error("AI 没能理解图片，请尝试换一张清晰的照片。");
+
+                    // 使用第三方渲染引擎 Pollinations，绕过 Google 的 Image 权限限制
                     const seed = Math.floor(Math.random() * 1000000);
-                    const finalUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt + ", realistic photography, highly detailed, high quality fashion shot")}?width=1024&height=1280&seed=${seed}&nologo=true`;
+                    const renderUrl = `https://pollinations.ai/p/${encodeURIComponent(promptText + ", photographic style, high fashion")}?width=1024&height=1280&seed=${seed}&nologo=true`;
                     
-                    // 预加载图片
-                    const img = new Image();
-                    img.src = finalUrl;
-                    img.onload = () => {
-                        setResult(finalUrl);
+                    const imgTest = new Image();
+                    imgTest.src = renderUrl;
+                    imgTest.onload = () => {
+                        setFinalResult(renderUrl);
                         setLoading(false);
                     };
                 } catch (err) {
-                    console.error(err);
                     setError(err.message);
                     setLoading(false);
                 }
             };
 
-            const saveApiKey = (val) => {
+            const saveKey = (val) => {
                 if (val.trim()) {
-                    localStorage.setItem('gemini_api_key_v4', val.trim());
+                    localStorage.setItem('gemini_api_key_v5', val.trim());
                     setApiKey(val.trim());
-                    setShowKeyModal(false);
+                    setIsKeyModalOpen(false);
                     window.location.reload();
                 }
             };
 
             return (
-                <div className="max-w-md mx-auto px-4 py-8">
-                    <div className="text-center mb-10">
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">AI VIRTUAL FITTING</h1>
-                        <p className="text-[10px] font-bold text-indigo-500 tracking-[0.3em] mt-1">PRO PRODUCTION V4.0</p>
-                    </div>
+                <div className="max-w-md mx-auto px-6 py-10 font-sans">
+                    <header className="text-center mb-10">
+                        <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
+                            <i data-lucide="sparkles" className="text-white"></i>
+                        </div>
+                        <h1 className="text-2xl font-black text-slate-800">AI 虚拟试衣间</h1>
+                        <p className="text-[10px] text-slate-400 tracking-[0.3em] font-bold uppercase mt-1">Universal Stable Build</p>
+                    </header>
 
                     <div className="space-y-6">
-                        {/* 上传模特 */}
-                        <div className="glass-card rounded-[2rem] p-5 shadow-xl shadow-indigo-100/50">
-                            <div className="flex justify-between items-center mb-4 px-1">
-                                <span className="text-xs font-black text-slate-400">01. 模特照</span>
-                                {modelImage && <button onClick={()=>setModelImage(null)} className="text-[10px] text-red-500 font-bold">移除</button>}
-                            </div>
+                        {/* 模特框 */}
+                        <div className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+                            <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                <i data-lucide="user" className="w-3 h-3"></i> 01. 上传模特照片
+                            </h3>
                             <div className="aspect-[4/3] rounded-2xl bg-slate-50 border-2 border-dashed border-slate-200 overflow-hidden relative">
-                                {modelImage ? (
-                                    <img src={modelImage} className="w-full h-full object-cover" />
+                                {modelImg ? (
+                                    <img src={modelImg} className="w-full h-full object-cover" onClick={() => setModelImg(null)} />
                                 ) : (
-                                    <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-slate-100 transition-colors">
-                                        <i data-lucide="camera" className="w-8 h-8 text-indigo-300 mb-2"></i>
-                                        <span className="text-[10px] font-bold text-slate-400">选择或拍摄照片</span>
-                                        <input type="file" className="hidden" accept="image/*" onChange={e => onFileChange(e, setModelImage)} />
+                                    <label className="flex flex-col items-center justify-center h-full w-full cursor-pointer hover:bg-slate-100 transition-colors">
+                                        <i data-lucide="plus" className="text-slate-300 w-8 h-8"></i>
+                                        <input type="file" className="hidden" accept="image/*" onChange={e => onImageUpload(e, setModelImg)} />
                                     </label>
                                 )}
                             </div>
                         </div>
 
-                        {/* 上传衣服 */}
-                        <div className="glass-card rounded-[2rem] p-5 shadow-xl shadow-indigo-100/50">
-                            <div className="flex justify-between items-center mb-4 px-1">
-                                <span className="text-xs font-black text-slate-400">02. 衣服单品</span>
-                                {clothImage && <button onClick={()=>setClothImage(null)} className="text-[10px] text-red-500 font-bold">移除</button>}
-                            </div>
-                            <div className="h-32 rounded-2xl bg-slate-50 border-2 border-dashed border-slate-200 overflow-hidden">
-                                {clothImage ? (
-                                    <img src={clothImage} className="w-full h-full object-contain p-2" />
+                        {/* 衣服框 */}
+                        <div className="bg-white rounded-[2rem] p-5 shadow-sm border border-slate-100">
+                            <h3 className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                <i data-lucide="shirt" className="w-3 h-3"></i> 02. 上传衣物照片
+                            </h3>
+                            <div className="h-32 rounded-2xl bg-slate-50 border-2 border-dashed border-slate-200 overflow-hidden relative">
+                                {itemImg ? (
+                                    <img src={itemImg} className="w-full h-full object-contain p-2" onClick={() => setItemImg(null)} />
                                 ) : (
-                                    <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-slate-100 transition-colors">
-                                        <i data-lucide="shirt" className="w-8 h-8 text-indigo-300 mb-2"></i>
-                                        <span className="text-[10px] font-bold text-slate-400">选择衣服照片</span>
-                                        <input type="file" className="hidden" accept="image/*" onChange={e => onFileChange(e, setClothImage)} />
+                                    <label className="flex flex-col items-center justify-center h-full w-full cursor-pointer hover:bg-slate-100 transition-colors">
+                                        <i data-lucide="plus" className="text-slate-300 w-8 h-8"></i>
+                                        <input type="file" className="hidden" accept="image/*" onChange={e => onImageUpload(e, setItemImg)} />
                                     </label>
                                 )}
                             </div>
                         </div>
 
                         {error && (
-                            <div className="bg-red-50 border border-red-100 p-4 rounded-2xl animate-fade">
-                                <p className="text-[10px] font-bold text-red-400 uppercase tracking-tighter mb-1 underline">API 错误诊断：</p>
-                                <p className="text-xs text-red-600 font-medium leading-relaxed">{error}</p>
+                            <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl animate-in">
+                                <p className="text-[10px] font-bold text-rose-400 mb-1">错误诊断：</p>
+                                <p className="text-xs text-rose-600 leading-relaxed break-words">{error}</p>
                             </div>
                         )}
 
                         <button 
-                            onClick={generateFitting}
+                            onClick={startFitting}
                             disabled={loading}
-                            className={`w-full py-5 rounded-2xl font-black text-white shadow-lg transition-all active:scale-95 flex items-center justify-center space-x-2 ${loading ? 'bg-slate-300' : 'gradient-bg'}`}
+                            className={`w-full py-5 rounded-2xl font-black text-white shadow-xl transition-all active:scale-95 ${loading ? 'bg-slate-300' : 'gradient-bg hover:shadow-emerald-200'}`}
                         >
-                            {loading ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                    <span>正在解析图片...</span>
-                                </>
-                            ) : (
-                                <span>立即生成试穿效果</span>
-                            )}
+                            {loading ? "AI 正在执行指令..." : "生成试穿结果"}
                         </button>
 
-                        {result && (
-                            <div className="pt-6 animate-fade">
-                                <div className="text-center mb-4">
-                                    <span className="px-4 py-1 bg-indigo-500 text-white text-[10px] font-black rounded-full uppercase">生成结果</span>
+                        {finalResult && (
+                            <div className="pt-6 animate-in">
+                                <div className="p-2 bg-white rounded-[2.5rem] shadow-2xl border border-slate-100">
+                                    <img src={finalResult} className="rounded-[2rem] w-full h-auto" />
                                 </div>
-                                <div className="p-2 bg-white rounded-[2.5rem] shadow-2xl border border-indigo-50">
-                                    <img src={result} className="rounded-[2rem] w-full h-auto" />
-                                </div>
-                                <p className="text-center text-[10px] text-slate-400 mt-4 tracking-widest font-bold">长按图片可保存至相册</p>
+                                <p className="text-center text-[10px] text-slate-300 mt-4 tracking-tighter italic">图片由 AI 渲染引擎生成，长按可保存</p>
                             </div>
                         )}
                     </div>
 
                     <div className="mt-16 text-center">
-                        <button onClick={()=>setShowKeyModal(true)} className="text-[9px] font-black text-slate-300 tracking-[0.4em] uppercase hover:text-indigo-400 transition-colors">
-                            Change API Auth
+                        <button onClick={() => setIsKeyModalOpen(true)} className="text-[9px] font-black text-slate-300 tracking-[0.4em] uppercase">
+                            Reset Key Auth
                         </button>
                     </div>
 
-                    {/* API KEY 弹窗 */}
-                    {showKeyModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-sm">
-                            <div className="bg-white w-full max-w-xs rounded-[3rem] p-10 shadow-2xl animate-fade text-center">
-                                <div className="w-16 h-16 bg-indigo-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                                    <i data-lucide="key" className="w-8 h-8 text-indigo-500"></i>
-                                </div>
-                                <h3 className="text-xl font-black text-slate-900 mb-2">配置 API 密钥</h3>
-                                <p className="text-[10px] text-slate-400 leading-relaxed mb-8">此版本已优化为 V1 稳定版接口。请输入你的 Google API Key。</p>
+                    {/* KEY 弹窗 */}
+                    {isKeyModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md">
+                            <div className="bg-white w-full max-w-xs rounded-[2.5rem] p-8 shadow-2xl text-center">
+                                <h2 className="text-xl font-black mb-2 italic">Gemini Key</h2>
+                                <p className="text-[10px] text-slate-400 mb-6">此版本使用 V1 稳定版通道</p>
                                 <input 
-                                    id="keyInput"
+                                    id="apiInp"
                                     type="password" 
                                     defaultValue={apiKey}
                                     placeholder="输入 AIZA... 开头的 Key"
-                                    className="w-full h-14 bg-slate-50 border border-slate-100 rounded-2xl px-4 text-sm font-mono focus:ring-2 ring-indigo-500/20 outline-none mb-6"
+                                    className="w-full h-12 bg-slate-50 border border-slate-100 rounded-xl px-4 text-xs font-mono focus:ring-2 ring-emerald-500/20 outline-none mb-6"
                                 />
                                 <button 
-                                    onClick={() => saveApiKey(document.getElementById('keyInput').value)}
-                                    className="w-full py-4 gradient-bg text-white rounded-2xl font-black shadow-xl"
+                                    onClick={() => saveKey(document.getElementById('apiInp').value)}
+                                    className="w-full h-12 gradient-bg text-white rounded-xl font-black"
                                 >
-                                    确认并保存
+                                    确认
                                 </button>
                             </div>
                         </div>
