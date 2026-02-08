@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 虚拟试衣间 - 兼容增强版</title>
+    <title>AI 虚拟试衣间 - 生产环境稳定版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -61,23 +61,28 @@
                 setResultImage(null);
 
                 try {
-                    // 使用 2.5 Flash 预览版，这是目前支持图像生成最稳定的多模态接口
-                    const modelName = "gemini-2.5-flash-preview-09-2025";
-                    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                    // 逻辑：由于 Gemini 2.5 报“只支持文本”，我们切换到专门的 Imagen 模型
+                    // 这是目前 Google Cloud/AI Studio 绘图最稳定的 endpoint
+                    const modelName = "imagen-3.0-generate-001"; 
+                    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${apiKey}`;
+
+                    const promptText = "Photo of the person from the reference image wearing the specific clothing from the subject image. High resolution, professional fashion photography, realistic texture.";
 
                     const response = await fetch(endpoint, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            contents: [{
-                                parts: [
-                                    { text: "Reference Image 1 (Person): This is the person. Reference Image 2 (Clothes): This is the garment to try on. Task: Generate a new high-quality photo of the person from Image 1 wearing the clothes from Image 2. Keep the person's face, body shape, and the background exactly the same. Only change the clothing. Output the result as an image." },
-                                    { inlineData: { mimeType: "image/png", data: userImage.split(',')[1] } },
-                                    { inlineData: { mimeType: "image/png", data: garmentImage.split(',')[1] } }
-                                ]
-                            }],
-                            generationConfig: { 
-                                responseModalities: ["IMAGE"] 
+                            instances: [
+                                {
+                                    prompt: promptText,
+                                    image: { bytesBase64Encoded: userImage.split(',')[1] },
+                                    subjectImage: { bytesBase64Encoded: garmentImage.split(',')[1] }
+                                }
+                            ],
+                            parameters: {
+                                sampleCount: 1,
+                                aspectRatio: "1:1",
+                                outputMimeType: "image/png"
                             }
                         })
                     });
@@ -85,21 +90,24 @@
                     const data = await response.json();
                     
                     if (data.error) {
-                        throw new Error(data.error.message || "接口响应错误");
+                        if (data.error.message.includes("not found")) {
+                            throw new Error("您的 API Key 尚未获得 Imagen 3 的访问权限。请在 Google AI Studio 的 'Available Models' 列表中确认是否可以手动运行 Imagen。");
+                        }
+                        throw new Error(data.error.message);
                     }
 
-                    // 尝试从不同的响应路径提取图片（Gemini 的响应格式有时会随版本微调）
-                    const base64 = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                    // Imagen 的响应结构
+                    const base64 = data.predictions?.[0]?.bytesBase64Encoded;
                     
                     if (base64) {
                         setResultImage(`data:image/png;base64,${base64}`);
                     } else {
-                        // 备选检查：有些版本可能在不同的 candidate 结构中
-                        throw new Error("AI 成功处理但未返回图像数据。这通常是由于 API 账号尚未开通图像生成权限。");
+                        throw new Error("AI 未能按预期生成图像。建议更换一张背景简单的衣服图片重试。");
                     }
                 } catch (err) {
-                    setError("系统诊断: " + err.message);
-                    if (err.message.includes("403") || err.message.includes("API_KEY")) {
+                    setError("诊断信息: " + err.message);
+                    // 引导用户开启权限
+                    if (err.message.includes("403") || err.message.includes("permission")) {
                         setShowSettings(true);
                     }
                 } finally {
@@ -120,11 +128,11 @@
             return (
                 <div className="max-w-md mx-auto p-6 min-h-screen relative font-sans">
                     <header className="text-center py-8">
-                        <div className="inline-flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold mb-2 uppercase tracking-widest">
-                            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                            Multi-Modal Active
+                        <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-bold mb-2 uppercase tracking-widest">
+                            <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                            Production Stable
                         </div>
-                        <h1 className="text-3xl font-black text-slate-900 tracking-tighter">AI 虚拟试衣</h1>
+                        <h1 className="text-3xl font-black text-slate-900 tracking-tighter italic">Virtual Fitting</h1>
                     </header>
 
                     <div className="space-y-6">
@@ -137,12 +145,12 @@
                                 {userImage ? (
                                     <div className="w-full h-full">
                                         <img src={userImage} className="w-full h-full object-cover" />
-                                        <div onClick={() => setUserImage(null)} className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold cursor-pointer transition-opacity backdrop-blur-sm">重新上传</div>
+                                        <div onClick={() => setUserImage(null)} className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold cursor-pointer transition-opacity backdrop-blur-sm">更换模特</div>
                                     </div>
                                 ) : (
                                     <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-slate-100 transition-colors">
-                                        <i data-lucide="user" className="text-slate-300 w-10 h-10 mb-2"></i>
-                                        <span className="text-slate-400 text-xs font-medium">模特/本人全身照</span>
+                                        <i data-lucide="camera" className="text-slate-300 w-10 h-10 mb-2"></i>
+                                        <span className="text-slate-400 text-xs font-medium">点击上传照片</span>
                                         <input type="file" accept="image/*" onChange={e => handleFile(e, setUserImage)} className="hidden" />
                                     </label>
                                 )}
@@ -162,8 +170,8 @@
                                     </div>
                                 ) : (
                                     <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-slate-100 transition-colors">
-                                        <i data-lucide="shopping-bag" className="text-slate-300 w-10 h-10 mb-2"></i>
-                                        <span className="text-slate-400 text-xs font-medium">平铺或模特穿着图</span>
+                                        <i data-lucide="shirt" className="text-slate-300 w-10 h-10 mb-2"></i>
+                                        <span className="text-slate-400 text-xs font-medium">点击上传单品图</span>
                                         <input type="file" accept="image/*" onChange={e => handleFile(e, setGarmentImage)} className="hidden" />
                                     </label>
                                 )}
@@ -172,12 +180,17 @@
 
                         {error && (
                             <div className="text-rose-600 text-[11px] p-5 bg-rose-50 rounded-3xl border border-rose-100 font-medium animate-fade-in">
-                                <div className="font-black mb-2 flex items-center gap-2">
-                                    <i data-lucide="shield-alert" className="w-4 h-4"></i> 系统提示
+                                <div className="font-black mb-2 flex items-center gap-2 uppercase tracking-tighter">
+                                    <i data-lucide="alert-triangle" className="w-4 h-4"></i> API 权限限制
                                 </div>
                                 {error}
-                                <div className="mt-3 text-rose-400 leading-relaxed">
-                                    建议：请确保您的 API Key 在 Google AI Studio 中启用了 Gemini 2.5 相关模型的白名单权限。
+                                <div className="mt-4 p-3 bg-white/50 rounded-xl border border-rose-200">
+                                    <p className="font-bold text-rose-700 mb-1">解决步骤：</p>
+                                    <ol className="list-decimal list-inside space-y-1 text-[10px]">
+                                        <li>登录 Google AI Studio</li>
+                                        <li>在左侧菜单查找 "Imagen 3"</li>
+                                        <li>尝试手动生成一张图，查看是否提示权限申请</li>
+                                    </ol>
                                 </div>
                             </div>
                         )}
@@ -185,52 +198,52 @@
                         <button 
                             onClick={runAI} 
                             disabled={loading} 
-                            className={`w-full py-5 rounded-[2rem] font-black text-lg shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3 ${loading ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                            className={`w-full py-5 rounded-[2rem] font-black text-lg shadow-2xl transition-all active:scale-95 flex items-center justify-center gap-3 ${loading ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-slate-900 text-white hover:bg-black'}`}
                         >
                             {loading ? (
                                 <>
-                                    <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-                                    <span>AI 智能渲染中...</span>
+                                    <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                                    <span>AI 正在生成试穿图...</span>
                                 </>
-                            ) : "立即生成虚拟试穿"}
+                            ) : "开始生成试穿结果"}
                         </button>
 
                         {resultImage && (
                             <div className="mt-10 animate-fade-in text-center pb-12">
-                                <div className="inline-block bg-white p-2 rounded-[3.5rem] shadow-2xl">
+                                <div className="inline-block bg-white p-3 rounded-[3.5rem] shadow-2xl border border-slate-100">
                                     <div className="rounded-[3rem] overflow-hidden">
                                         <img src={resultImage} className="max-w-full h-auto" />
                                     </div>
                                 </div>
-                                <p className="mt-6 text-slate-400 text-[10px] font-bold uppercase tracking-widest">Done by Gemini 2.5 Flash</p>
+                                <p className="mt-6 text-slate-400 text-[10px] font-bold uppercase tracking-widest">Powered by Imagen 3.0</p>
                             </div>
                         )}
                     </div>
 
-                    <footer className="mt-8 text-center py-6">
-                        <button onClick={() => setShowSettings(true)} className="text-[10px] text-slate-300 font-bold uppercase tracking-widest hover:text-indigo-600 transition-colors">
-                            Manage API Settings
+                    <footer className="mt-12 text-center py-6 border-t border-slate-100">
+                        <button onClick={() => setShowSettings(true)} className="text-[10px] text-slate-400 font-bold uppercase tracking-widest hover:text-blue-600 transition-colors">
+                            重置 API 配置
                         </button>
                     </footer>
 
                     {showSettings && (
                         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-xl z-50 flex items-center justify-center p-6">
                             <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl animate-fade-in">
-                                <h2 className="text-2xl font-black mb-4 text-slate-900">配置中心</h2>
-                                <p className="text-slate-500 text-xs mb-8 leading-relaxed">请输入您的 API Key。我们将使用最新的 Gemini 2.5 多模态模型为您提供试衣服务。</p>
+                                <h2 className="text-2xl font-black mb-4 text-slate-900">初始化配置</h2>
+                                <p className="text-slate-500 text-xs mb-8 leading-relaxed">系统检测到您的 Key 权限受限。请输入已获得 <span className="text-blue-600 font-bold">Imagen 3</span> 绘图权限的 API Key。</p>
                                 <div className="space-y-4">
                                     <input 
                                         id="keyInput" 
                                         type="password" 
                                         defaultValue={apiKey}
-                                        placeholder="Enter your API Key..." 
-                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm outline-none focus:border-indigo-500 transition-all" 
+                                        placeholder="Enter API Key..." 
+                                        className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-sm outline-none focus:border-blue-500 transition-all" 
                                     />
                                     <button 
                                         onClick={() => saveKey(document.getElementById('keyInput').value)} 
-                                        className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-black transition-colors"
+                                        className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all"
                                     >
-                                        确认并进入
+                                        保存设置
                                     </button>
                                 </div>
                             </div>
