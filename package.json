@@ -1,0 +1,12 @@
+{
+  "name": "ai-virtual-try-on",
+  "version": "1.0.0",
+  "description": "A simple AI virtual try-on application.",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
